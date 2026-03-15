@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "833210892294",
+    "project_id": "faforever",
+    "storage_bucket": "faforever.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:833210892294:android:af82832501f93f7e050387",
+        "android_client_info": {
+          "package_name": "com.example.faforever"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3O6xO6SM-fiUD5fzEg3q9cEr_u5sDHLA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:833210892294:android:74ae271936416626050387",
+        "android_client_info": {
+          "package_name": "com.example.messapp1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3O6xO6SM-fiUD5fzEg3q9cEr_u5sDHLA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
