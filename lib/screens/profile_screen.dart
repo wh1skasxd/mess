@@ -1,9 +1,13 @@
-import 'dart:convert'; // Для кодирования картинки в текст
-import 'dart:typed_data'; // Для декодирования текста обратно в картинку
+import 'dart:convert'; 
+import 'dart:typed_data'; 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart'; // Галерея
+import 'package:image_picker/image_picker.dart'; 
+import 'package:shared_preferences/shared_preferences.dart'; 
 import '../models/user.dart';
 import '../services/api_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'register_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ProfileScreen extends StatefulWidget {
   final UserModel currentUser;
@@ -16,190 +20,267 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _usernameCtrl;
-  String? _newAvatarBase64; // Временное хранилище для новой фотки
+  late TextEditingController _phoneCtrl;
+  late TextEditingController _bioCtrl; 
+  
+  String? _newAvatarBase64; 
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    // Предзаполняем текущее имя пользователя
     _usernameCtrl = TextEditingController(text: widget.currentUser.username);
-    // Берем текущую аватарку из профиля
+    _phoneCtrl = TextEditingController(text: widget.currentUser.phoneNumber ?? '');
+    _bioCtrl = TextEditingController(text: widget.currentUser.bio ?? '');
     _newAvatarBase64 = widget.currentUser.avatarBase64;
+    _loadFreshData();
+  }
+
+  // --- ТВОЯ ЛОГИКА ЗАГРУЗКИ ---
+  Future<void> _loadFreshData() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (doc.exists && mounted) {
+        final data = doc.data()!;
+        setState(() {
+          _usernameCtrl.text = data['username'] ?? '';
+          _phoneCtrl.text = data['phoneNumber'] ?? '';
+          _bioCtrl.text = data['bio'] ?? '';
+          _newAvatarBase64 = data['avatarBase64'];
+        });
+      }
+    } catch (e) {
+      print('Ошибка при загрузке свежих данных профиля: $e');
+    }
   }
 
   @override
   void dispose() {
     _usernameCtrl.dispose();
+    _phoneCtrl.dispose(); 
+    _bioCtrl.dispose();
     super.dispose();
   }
 
-  // ФУНКЦИЯ МАГИИ: открывает галерею, сжимает фотку и делает из неё текст
+  // --- ТВОЯ ЛОГИКА ФОТО ---
   Future<void> _pickAndConvertImage() async {
     final picker = ImagePicker();
-    // Открываем галерею.maxWidth и maxHeigh обязательны, чтобы база не лопнула
     final XFile? image = await picker.pickImage(
       source: ImageSource.gallery,
-      maxWidth: 400, // Сжимаем до 400px по ширине
-      maxHeight: 400, // Сжимаем до 400px по высоте
-      imageQuality: 70, // Уменьшаем качество до 70%
+      maxWidth: 400, 
+      maxHeight: 400, 
+      imageQuality: 70, 
     );
-
     if (image != null) {
       setState(() => _isLoading = true);
-
-      // Читаем фотку как набор байтов (цифр)
       final Uint8List imageBytes = await image.readAsBytes();
-      // ХАКЕРСКИЙ ХОД: превращаем байты в длинную строку текста
       final String base64String = base64Encode(imageBytes);
-
       setState(() {
-        _newAvatarBase64 = base64String; // Сохраняем текст для превью на экране
+        _newAvatarBase64 = base64String; 
         _isLoading = false;
       });
     }
   }
 
-  // Функция сохранения изменений
+  // --- ТВОЯ ЛОГИКА СОХРАНЕНИЯ ---
   Future<void> _saveProfile() async {
     final newUsername = _usernameCtrl.text.trim();
+    final newPhone = _phoneCtrl.text.trim();
+    final newBio = _bioCtrl.text.trim(); 
+
     if (newUsername.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Имя не может быть пустым')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Имя не может быть пустым')));
       return;
     }
 
     setState(() => _isLoading = true);
-
-    // Собираем обновленного пользователя
     final updatedUser = UserModel(
       id: widget.currentUser.id,
       username: newUsername,
-      avatarBase64: _newAvatarBase64, // Наш текст-картинка
+      avatarBase64: _newAvatarBase64, 
       isActive: widget.currentUser.isActive,
       createdAt: widget.currentUser.createdAt,
+      phoneNumber: newPhone.isEmpty ? null : newPhone,
+      bio: newBio.isEmpty ? null : newBio, 
     );
-
+    
     final api = ApiService();
-    // Сохраняем в Firestore
     await api.saveUser(updatedUser);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('username', newUsername);
+    await prefs.setString('phoneNumber', newPhone); 
+    await prefs.setString('bio', newBio);
+    if (_newAvatarBase64 != null) {
+      await prefs.setString('avatarBase64', _newAvatarBase64!);
+    }
 
     if (mounted) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Профиль обновлен! 🎉')),
-      );
-      // Возвращаемся в чаты.ВАЖНО: мы передаем обновленного юзера обратно,
-      // чтобы шторка сразу обновилась!
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Профиль обновлен! 🎉')));
       Navigator.pop(context, updatedUser);
     }
   }
+  
+  // --- ТВОЯ ЛОГИКА ВЫХОДА ---
+  Future<void> _logOut() async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Выйти из аккаунта?'),
+        content: const Text('Вы сможете войти снова в любое время.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Выйти', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    
+    await FirebaseAuth.instance.signOut();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear(); 
 
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const RegisterScreen()), (route) => false);
+    }
+  }
+
+  // ==========================================
+  // 🎨 НОВЫЙ КРАСИВЫЙ ДИЗАЙН (UI)
+  // ==========================================
   @override
   Widget build(BuildContext context) {
-    // Вспомогательная функция для отображения аватарки
-    Widget _buildAvatar() {
-      // Если текста аватарки нет, показываем иконку
+    // Функция для отрисовки самой фотки внутри кружка
+    Widget buildAvatarImage() {
       if (_newAvatarBase64 == null) {
-        return const Icon(Icons.person, size: 80, color: Colors.grey);
+        return const Icon(Icons.person, size: 65, color: Colors.blue);
       }
-      
       try {
-        // Декодируем текст обратно в байты для отображения
         final Uint8List bytes = base64Decode(_newAvatarBase64!);
-        return ClipOval(
-          child: Image.memory(
-            bytes,
-            fit: BoxFit.cover,
-            width: 160,
-            height: 160,
-          ),
-        );
+        return Image.memory(bytes, fit: BoxFit.cover, width: 130, height: 130);
       } catch (e) {
-        // Если текст битый, показываем ошибку
-        return const Icon(Icons.error, size: 80, color: Colors.red);
+        return const Icon(Icons.error, size: 65, color: Colors.red);
       }
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Аккаунт')),
+      appBar: AppBar(
+        title: const Text('Мой профиль'),
+        centerTitle: true,
+        elevation: 0,
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
         child: Column(
           children: [
-            const SizedBox(height: 20),
-            // Центр с аватаркой и кнопкой смены
-            Center(
+            // --- 📸 КРАСИВЫЙ БЛОК АВАТАРКИ ---
+            GestureDetector(
+              onTap: _pickAndConvertImage, 
               child: Stack(
+                alignment: Alignment.bottomRight,
                 children: [
                   Container(
-                    width: 160,
-                    height: 160,
+                    width: 130,
+                    height: 130,
                     decoration: BoxDecoration(
-                      color: Colors.grey[200],
+                      color: Colors.blue.withOpacity(0.1),
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.blue[100]!, width: 2),
+                      border: Border.all(color: Colors.blue.withOpacity(0.3), width: 3),
                     ),
-                    child: _isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : _buildAvatar(),
+                    child: ClipOval(
+                      child: _isLoading 
+                        ? const Center(child: CircularProgressIndicator()) 
+                        : buildAvatarImage()
+                    ),
                   ),
-                  // Кнопка галереи поверх аватарки
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.blue,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.add_a_photo, color: Colors.white),
-                        onPressed: _pickAndConvertImage,
-                        iconSize: 24,
-                      ),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 3),
                     ),
+                    child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 32),
-            // Поле ввода имени
+
+            // --- 📝 КРАСИВЫЕ ПОЛЯ ВВОДА ---
             TextField(
               controller: _usernameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Имя пользователя',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.account_circle),
+              decoration: InputDecoration(
+                labelText: 'Имя',
+                prefixIcon: const Icon(Icons.person_outline, color: Colors.blue),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Colors.blue, width: 2)),
               ),
-              textInputAction: TextInputAction.done,
             ),
             const SizedBox(height: 16),
-            // Заглушка для номера (его пока нет в нашей модели)
-            // УБРАЛИ слово const вот отсюда:
+            
             TextField(
+              controller: _phoneCtrl,
+              keyboardType: TextInputType.phone,
               decoration: InputDecoration(
-                labelText: 'Номер телефона',
-                border: const OutlineInputBorder(),
-                prefixIcon: const Icon(Icons.phone),
-                hintText: widget.currentUser.phoneNumber ?? 'Не привязан', 
+                labelText: 'Телефон',
+                prefixIcon: const Icon(Icons.phone_outlined, color: Colors.blue),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Colors.blue, width: 2)),
               ),
-              enabled: false, 
             ),
-            const SizedBox(height: 40),
-            // Кнопка сохранения
+            const SizedBox(height: 16),
+
+            TextField(
+              controller: _bioCtrl,
+              maxLength: 30,
+              decoration: InputDecoration(
+                labelText: 'О себе',
+                hintText: 'Расскажите немного о себе...',
+                prefixIcon: const Icon(Icons.info_outline, color: Colors.blue),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Colors.blue, width: 2)),
+              ),
+            ),
+            const SizedBox(height: 32),
+
+            // --- 💾 КНОПКИ ---
             if (_isLoading)
               const CircularProgressIndicator()
             else
-              ElevatedButton(
-                onPressed: _saveProfile,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56), // Широкая кнопка
+              SizedBox(
+                width: double.infinity,
+                height: 55,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    elevation: 2,
+                  ),
+                  onPressed: _saveProfile,
+                  child: const Text('Сохранить изменения', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
-                child: const Text('Сохранить изменения', style: TextStyle(fontSize: 16)),
               ),
+            const SizedBox(height: 16),
+            
+            SizedBox(
+              width: double.infinity,
+              height: 55,
+              child: OutlinedButton.icon(
+                onPressed: _logOut,
+                icon: const Icon(Icons.logout, color: Colors.redAccent),
+                label: const Text('Выйти из аккаунта', style: TextStyle(color: Colors.redAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.redAccent, width: 2),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
           ],
         ),
       ),

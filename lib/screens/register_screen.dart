@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/api_service.dart';
 import '../models/user.dart';
+import 'login_screen.dart'; // Добавляем, чтобы экран видел соседа
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -157,8 +158,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             const SizedBox(height: 16),
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Уже есть аккаунт? Войти'),
+              onPressed: () {
+                // Жестко перекидываем на экран входа, заменяя текущий экран
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                );
+              },
+              child: const Text('Уже есть аккаунт?\nВойти', textAlign: TextAlign.center),
             ),
           ],
         ),
